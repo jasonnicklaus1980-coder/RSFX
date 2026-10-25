@@ -1,0 +1,10 @@
+build/
+dist/
+*.o
+*.so
+mpc/skin/
+__pycache__/
+*.pyc
+.DS_Store
+*.pdf
+*.wav

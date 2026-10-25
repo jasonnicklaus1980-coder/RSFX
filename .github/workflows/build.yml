@@ -1,0 +1,46 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf zip
+          pip install --quiet pillow
+
+      - name: Host test
+        run: make test
+
+      - name: Build ARM plugin + package
+        run: |
+          chmod +x scripts/*.sh mpc/*.sh
+          ./scripts/package.sh
+          ls -la dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RSFX-mpc-armv7
+          path: dist/*.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: RSFX ${{ github.ref_name }}
+          make_latest: true
+          files: dist/RSFX-1.1.0-mpc-armv7.zip
