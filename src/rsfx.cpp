@@ -37,6 +37,31 @@ struct Plugin {
         programLoaded = true;
     }
     bool programLoaded = false;
+    // The MPC redraws a parameter only when the plugin announces it changed, so push the meters ~25x/s
+    // and re-announce everything after a preset change (otherwise the Program name lags behind).
+    int meterWait = 0;
+    float meterSent[4] = {-1.f, -1.f, -1.f, -1.f};
+    void notifyMeters(int n) {
+        if (!host) return;
+        meterWait -= n;
+        if (meterWait > 0) return;
+        meterWait = (int)((eng.sr > 0 ? eng.sr : 44100.f) * 0.04f);
+        for (int c = 0; c < 4; c++) {
+            float v = eng.meterNorm[c];
+            if (fabsf(v - meterSent[c]) < 0.01f) continue;
+            meterSent[c] = v;
+            host(&fx, audioMasterAutomate, P_INL + c, 0, nullptr, v);
+        }
+    }
+    void notifyAll() {
+        if (!host) return;
+        for (int p = 0; p < NPARAMS; p++) {
+            if (p >= P_INL && p <= P_OUTR) continue;
+            if (p == P_CHAIN || (p >= P_LED_REV && p <= P_LED_CHR)) continue;   // syncReadOnly(.., true) sends these
+            host(&fx, audioMasterAutomate, p, 0, nullptr, param[p]);
+        }
+        syncReadOnly(algoFromNorm(param[P_ALGO]), true);
+    }
     // the chain text and module lights follow the algorithm; tell the host so the screen redraws them
     void syncReadOnly(int a, bool notify) {
         param[P_CHAIN] = eng.info[a].def[P_CHAIN];
@@ -153,6 +178,7 @@ intptr_t dispatcher(AEffect* e, int32_t op, int32_t idx, intptr_t val, void* ptr
             pl->program = (int)val;
             pl->loadDefaults((int)val);
             pl->syncReadOnly((int)val, false);
+            pl->notifyAll();
         }
         return 0;
     case effGetProgram: return pl->program;
@@ -213,6 +239,7 @@ void processReplacing(AEffect* e, float** in, float** out, int32_t n) {
     denormalsOff();
     float tgt[NPARAMS]; memcpy(tgt, pl->param, sizeof tgt);
     pl->eng.process(in[0], in[1], out[0], out[1], n, tgt);
+    pl->notifyMeters(n);
 }
 
 void processAccum(AEffect* e, float** in, float** out, int32_t n) {
